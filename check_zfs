@@ -1,0 +1,165 @@
+#!/usr/bin/env python
+
+import pprint
+import re
+import subprocess
+
+PP = pprint.PrettyPrinter()
+
+# Nagios return codes.
+RC_OK       = 0
+RC_WARNING  = 1
+RC_CRITICAL = 2
+RC_UNKNOWN  = 3
+
+NO_ERRORS = 'No known data errors'
+
+zpool_proc = subprocess.Popen(['zpool', 'status'], stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE)
+zpool_stdout, zpool_stderr = zpool_proc.communicate()
+if zpool_proc.returncode != 0:
+    print 'Unable to run zpool.'
+    print zpool_stdout
+    exit(RC_UNKNOWN)
+
+pools = {}
+current_pool = None
+current_key = None
+for line in zpool_stdout.split("\n"):
+    padding = 0
+    m = re.search('^( *)([^\t:]+): ?(.*)', line)
+    if m:
+        if m.group(2) == 'pool':
+            current_pool = {}
+            pools[m.group(3)] = current_pool
+        current_key = m.group(2)
+        if len(m.group(3)) > 0:
+            current_pool[current_key] = m.group(3)
+        padding = len(m.group(1)) + len(m.group(2))
+    elif len(line) > 0:
+        addition = re.sub("^\t", '', line)
+        if current_key in current_pool:
+            current_pool[current_key] += "\n" + addition
+        else:
+            current_pool[current_key] = addition
+
+class VDev:
+    @staticmethod
+    def indent_level(line):
+        return (len(line) - len(line.lstrip())) / 2
+
+    @staticmethod
+    def parse_config(config):
+        devices = []
+        stack = []
+        last_indent = 0
+        for line in config.splitlines():
+            if line == '': continue
+            if line.split() == ['NAME', 'STATE', 'READ', 'WRITE', 'CKSUM']: continue
+            cur_indent = VDev.indent_level(line)
+            fields = line.split(None, 5)
+            if len(fields) == 6:
+                vd = VDev(fields[0], fields[1], int(fields[2]),
+                          int(fields[3]), int(fields[4]), fields[5])
+            elif len(fields) == 5:
+                try:
+                    vd = VDev(fields[0], fields[1], int(fields[2]),
+                              int(fields[3]), int(fields[4]))
+                except ValueError:
+                    vd = VDev(fields[0], fields[1])
+            elif len(fields) == 2:
+                vd = VDev(fields[0], fields[1])
+            else:
+                vd = VDev(fields[0])
+
+            if cur_indent == 0:
+                # Root node.
+                devices.append(vd)
+                stack = [vd]
+            else:
+                # Remove things from the stack to get to the current vdev's
+                # parent.
+                for i in xrange(cur_indent, last_indent + 1):
+                    stack.pop()
+                stack[-1].children.append(vd)
+                stack.append(vd)
+
+            last_indent = cur_indent
+
+        return devices
+
+    def __init__(self, name, state='', read=0, write=0, cksum=0, note='', children=None):
+        self.name = name
+        self.state = state
+        self.read = read
+        self.write = write
+        self.cksum = cksum
+        self.note = note
+        if children:
+            self.children = children
+        else:
+            self.children = []
+
+# Parse the pool config
+for pool in pools.values():
+    if 'config' in pool.keys():
+        pool['config'] = VDev.parse_config(pool['config'])
+
+def check_vdev(vd, pool):
+    if vd.read != 0 or vd.write != 0 or vd.cksum != 0:
+        return_code = RC_WARNING
+        message = 'zpool "{0}": device integrity errors on {1}'.format(pool['pool'], vd.name)
+        return (return_code, message)
+    for c in vd.children:
+        rc = check_vdev(c, pool)
+        if rc:
+            return rc
+    return None
+
+def check_pool(pool):
+    return_code = None
+    message = None
+
+    if pool['state'] != 'ONLINE':
+        return_code = RC_CRITICAL
+        message = 'zpool "{0}": {1}'.format(pool['pool'], pool['state'])
+        return (return_code, message)
+
+    if pool['errors'] != NO_ERRORS:
+        return_code = RC_CRITICAL
+        message = 'zpool "{0}": {1}'.format(pool['pool'], re.sub('(\d+) data error.*', '\\1 data errors', pool['errors']))
+        return (return_code, message)
+
+    for vd in pool['config']:
+        rc = check_vdev(vd, pool)
+        if rc:
+            return rc
+    
+    return (RC_OK, None)
+
+return_code = RC_OK
+message = None
+extended_message = None
+for pool in pools.values():
+    rc, m = check_pool(pool)
+    if rc != RC_OK:
+        return_code = max(return_code, rc)
+        if message:
+            message += '; ' + m
+        else:
+            message = m
+        if 'status' in pool:
+            em = '{0}:\n{1}'.format(pool['pool'], pool['status'])
+            if extended_message:
+                extended_message += "\n" + em
+            else:
+                extended_message = em
+
+if return_code == RC_OK:
+    print 'All zpools OK'
+else:
+    print message
+    print extended_message
+
+exit(return_code)
+
