@@ -14,6 +14,10 @@ RC_UNKNOWN  = 3
 
 NO_ERRORS = 'No known data errors'
 
+USAGE_WARN = 80
+USAGE_CRIT = 90
+
+# Pull in basic info.
 zpool_proc = subprocess.Popen(['zpool', 'status'], stdout=subprocess.PIPE,
                               stderr=subprocess.PIPE)
 zpool_stdout, zpool_stderr = zpool_proc.communicate()
@@ -42,6 +46,26 @@ for line in zpool_stdout.split("\n"):
             current_pool[current_key] += "\n" + addition
         else:
             current_pool[current_key] = addition
+
+# Add info from `zpool list`
+zpool_proc = subprocess.Popen(['zpool', 'list', '-Hp'], stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE)
+zpool_stdout, zpool_stderr = zpool_proc.communicate()
+if zpool_proc.returncode != 0:
+    print 'Unable to run zpool.'
+    print zpool_stdout
+    exit(RC_UNKNOWN)
+
+for line in zpool_stdout.strip().split("\n"):
+    p_name, p_size_s, p_alloc_s, p_free_s, p_expand, p_frag_s, p_cap_s, p_dedup_s, p_health, p_altroot = \
+        line.split()
+    pools[p_name]['size']     = int(p_size_s)
+    pools[p_name]['alloc']    = int(p_alloc_s)
+    pools[p_name]['free']     = int(p_free_s)
+    pools[p_name]['frag']     = int(p_frag_s)
+    pools[p_name]['capacity'] = int(p_cap_s)
+    pools[p_name]['dedup']    = float(p_dedup_s)
+
 
 class VDev:
     @staticmethod
@@ -135,6 +159,17 @@ def check_pool(pool):
         if rc:
             return rc
     
+    pool_usage = float(pool['alloc']) / float(pool['size']) * 100
+    if pool_usage >= USAGE_CRIT:
+        return_code = RC_CRITICAL
+        message = 'zpool "{0}": {1:.1f}% used.'.format(pool['pool'], pool_usage)
+        return (return_code, message)
+
+    if pool_usage >= USAGE_WARN:
+        return_code = RC_WARNING
+        message = 'zpool "{0}": {1:.1f}% used.'.format(pool['pool'], pool_usage)
+        return (return_code, message)
+
     return (RC_OK, None)
 
 return_code = RC_OK
@@ -159,7 +194,8 @@ if return_code == RC_OK:
     print 'All zpools OK'
 else:
     print message
-    print extended_message
+    if extended_message is not None:
+        print extended_message
 
 exit(return_code)
 
