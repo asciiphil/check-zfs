@@ -56,8 +56,10 @@ for line in zpool_stdout.split("\n"):
             current_pool[current_key] = addition
 
 # Add info from `zpool list`
-zpool_proc = subprocess.Popen(['zpool', 'list', '-Hp'], stdout=subprocess.PIPE,
-                              stderr=subprocess.PIPE)
+zpool_proc = subprocess.Popen(
+    ['zpool', 'list', '-Hp', '-o', 'name,size,allocated,free,frag,capacity,dedupratio'],
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE)
 zpool_stdout, zpool_stderr = zpool_proc.communicate()
 if zpool_proc.returncode != 0:
     print 'Unable to run zpool.'
@@ -65,7 +67,7 @@ if zpool_proc.returncode != 0:
     exit(RC_UNKNOWN)
 
 for line in zpool_stdout.strip().split("\n"):
-    p_name, p_size_s, p_alloc_s, p_free_s, p_expand, p_frag_s, p_cap_s, p_dedup_s, p_health, p_altroot = \
+    p_name, p_size_s, p_alloc_s, p_free_s, p_frag_s, p_cap_s, p_dedup_s = \
         line.split()
     pools[p_name]['size']     = int(p_size_s)
     pools[p_name]['alloc']    = int(p_alloc_s)
