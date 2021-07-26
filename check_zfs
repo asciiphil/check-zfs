@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import optparse
 import pprint
@@ -30,14 +30,14 @@ zpool_proc = subprocess.Popen(['zpool', 'status'], stdout=subprocess.PIPE,
                               stderr=subprocess.PIPE)
 zpool_stdout, zpool_stderr = zpool_proc.communicate()
 if zpool_proc.returncode != 0:
-    print 'Unable to run zpool.'
-    print zpool_stdout
+    print('Unable to run zpool.')
+    print(zpool_stdout)
     exit(RC_UNKNOWN)
 
 pools = {}
 current_pool = None
 current_key = None
-for line in zpool_stdout.split("\n"):
+for line in zpool_stdout.decode('utf-8').split("\n"):
     padding = 0
     m = re.search('^( *)([^\t:]+): ?(.*)', line)
     if m:
@@ -62,11 +62,11 @@ zpool_proc = subprocess.Popen(
     stderr=subprocess.PIPE)
 zpool_stdout, zpool_stderr = zpool_proc.communicate()
 if zpool_proc.returncode != 0:
-    print 'Unable to run zpool.'
-    print zpool_stdout
+    print('Unable to run zpool.')
+    print(zpool_stdout)
     exit(RC_UNKNOWN)
 
-for line in zpool_stdout.strip().split("\n"):
+for line in zpool_stdout.decode('utf-8').strip().split("\n"):
     p_name, p_size_s, p_alloc_s, p_free_s, p_frag_s, p_cap_s, p_dedup_s = \
         line.split()
     pools[p_name]['size']     = int(p_size_s)
@@ -80,7 +80,7 @@ for line in zpool_stdout.strip().split("\n"):
 class VDev:
     @staticmethod
     def indent_level(line):
-        return (len(line) - len(line.lstrip())) / 2
+        return (len(line) - len(line.lstrip())) // 2
 
     @staticmethod
     def parse_config(config):
@@ -113,7 +113,7 @@ class VDev:
             else:
                 # Remove things from the stack to get to the current vdev's
                 # parent.
-                for i in xrange(cur_indent, last_indent + 1):
+                for i in range(cur_indent, last_indent + 1):
                     stack.pop()
                 stack[-1].children.append(vd)
                 stack.append(vd)
@@ -201,11 +201,11 @@ for pool in pools.values():
                 extended_message = em
 
 if return_code == RC_OK:
-    print 'All zpools OK'
+    print('All zpools OK')
 else:
-    print message
+    print(message)
     if extended_message is not None:
-        print extended_message
+        print(extended_message)
 
 exit(return_code)
 
