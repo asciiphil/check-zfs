@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 
 import optparse
-import pprint
 import re
 import subprocess
 
-PP = pprint.PrettyPrinter()
 
 # Nagios return codes.
 RC_OK       = 0
